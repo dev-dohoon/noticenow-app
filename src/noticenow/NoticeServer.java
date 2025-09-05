@@ -137,6 +137,7 @@ public class NoticeServer {
         PrintWriter writer = sseClients.get(studentId);
         if (writer != null) {
             writer.write("data: " + data + "\n\n");
+            writer.flush(); // ✨ 이 부분이 핵심적인 수정 사항입니다! ✨
             if (writer.checkError()) {
                 System.out.println("❌ SSE 전송 실패, 클라이언트 연결 종료됨: " + studentId);
                 sseClients.remove(studentId);
@@ -244,14 +245,13 @@ public class NoticeServer {
         }
     }
 
-    // ✨ 최종 수정된 SseHandler ✨
     static class SseHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             if (studentId == null || studentId.isBlank()) {
-                exchange.sendResponseHeaders(400, -1); // Bad Request
+                exchange.sendResponseHeaders(400, -1);
                 return;
             }
 
@@ -260,20 +260,18 @@ public class NoticeServer {
             exchange.getResponseHeaders().set("Connection", "keep-alive");
             exchange.sendResponseHeaders(200, 0);
 
-            PrintWriter writer = new PrintWriter(exchange.getResponseBody(), true, StandardCharsets.UTF_8);
+            PrintWriter writer = new PrintWriter(exchange.getResponseBody(), false, StandardCharsets.UTF_8); // autoFlush를 false로 변경
             sseClients.put(studentId, writer);
             System.out.println("✅ SSE 클라이언트 연결됨: " + studentId);
 
-            // 클라이언트가 연결을 유지하는 동안 이 스레드를 계속 실행하여 연결이 끊어지지 않도록 합니다.
             try {
                 while (!writer.checkError()) {
-                    // 20초마다 keep-alive 신호를 보내 중간 프록시가 연결을 끊는 것을 방지합니다.
                     writer.write(": keep-alive\n\n");
-                    if (writer.checkError()) break; // 쓰기 오류가 발생하면 클라이언트 연결이 끊어진 것입니다.
-                    Thread.sleep(20000); // 20초 대기
+                    writer.flush(); // ✨ keep-alive 신호도 즉시 전송합니다. ✨
+                    Thread.sleep(20000);
                 }
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // 스레드 인터럽트 상태 복원
+                Thread.currentThread().interrupt();
             } finally {
                 sseClients.remove(studentId);
                 System.out.println("❌ SSE 클라이언트 연결 종료: " + studentId);
@@ -298,7 +296,7 @@ public class NoticeServer {
     }
 
     private static void sendJsonResponse(HttpExchange exchange, int statusCode, String json) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF_8");
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(statusCode, jsonBytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
