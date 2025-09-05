@@ -15,25 +15,26 @@
     </properties>
 
     <dependencies>
-        <!-- HTML 파싱을 위한 Jsoup 라이브러리 -->
+        <!-- Jsoup HTML Parser -->
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
         </dependency>
-        <!-- Firebase 푸시 알림을 위한 라이브러리 -->
-        <dependency>
-            <groupId>com.google.firebase</groupId>
-            <artifactId>firebase-admin</artifactId>
-            <version>9.2.0</version>
-        </dependency>
     </dependencies>
 
     <build>
+        <sourceDirectory>src</sourceDirectory>
+        <resources>
+            <resource>
+                <directory>src/resources</directory>
+            </resource>
+        </resources>
         <plugins>
-            <!-- 모든 코드를 하나의 실행가능한 JAR 파일로 묶어주는 플러그인 -->
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.6.0</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -56,4 +57,5 @@
             </plugin>
         </plugins>
     </build>
+
 </project>
