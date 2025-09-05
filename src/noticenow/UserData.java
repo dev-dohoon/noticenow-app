@@ -3,7 +3,6 @@ package noticenow;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public class UserData {
     private List<MonitoredSite> sites;
@@ -15,21 +14,32 @@ public class UserData {
     }
 
     public List<MonitoredSite> getSites() {
+        if (this.sites == null) {
+            this.sites = new ArrayList<>();
+        }
         return sites;
     }
 
     public void addSite(MonitoredSite site) {
+        if (this.sites == null) {
+            this.sites = new ArrayList<>();
+        }
         if (this.sites.size() < 3) {
             this.sites.add(site);
         }
     }
 
     public void removeSite(String url) {
-        this.sites.removeIf(site -> site.getUrl().equals(url));
+        if (this.sites != null) {
+            this.sites.removeIf(site -> site.getUrl().equals(url));
+        }
     }
 
     // --- 부재중 알림 관련 메소드 ---
     public List<Map<String, String>> getMissedNotifications() {
+        if (this.missedNotifications == null) {
+            this.missedNotifications = new ArrayList<>();
+        }
         return missedNotifications;
     }
 
@@ -41,6 +51,8 @@ public class UserData {
     }
 
     public void clearMissedNotifications() {
-        this.missedNotifications.clear();
+        if (this.missedNotifications != null) {
+            this.missedNotifications.clear();
+        }
     }
 }
