@@ -37,37 +37,37 @@
 
     <!-- 메인 화면 (로그인 후 보임) -->
     <div id="main-view" class="view hidden-view">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <!-- 왼쪽 컬럼: 사이트 관리 -->
-            <div class="bg-white rounded-2xl shadow-lg p-8">
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-800">내 알림 사이트</h2>
-                        <p id="welcomeMessage" class="text-gray-500 text-sm"></p>
-                    </div>
-                    <button id="logoutButton" class="text-sm text-gray-500 hover:text-red-500">로그아웃</button>
+        <div class.grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- 왼쪽 컬럼: 사이트 관리 -->
+        <div class="bg-white rounded-2xl shadow-lg p-8">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">내 알림 사이트</h2>
+                    <p id="welcomeMessage" class="text-gray-500 text-sm"></p>
                 </div>
-                <div id="site-list" class="space-y-3 mb-6 min-h-[120px]"></div>
-                <div id="add-site-form" class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="font-semibold mb-3 text-gray-700">새 사이트 추가 (최대 3개)</h3>
-                    <div class="space-y-3">
-                        <input id="siteNameInput" type="text" placeholder="이름 (예: 전남대 공지)" class="w-full px-3 py-2 bg-white rounded-md border">
-                        <input id="siteUrlInput" type="url" placeholder="URL (예: https://...)" class="w-full px-3 py-2 bg-white rounded-md border">
-                        <button id="addSiteButton" class="w-full px-4 py-2 font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">
-                            추가하기
-                        </button>
-                    </div>
-                </div>
-                <p id="errorMessage" class="text-red-500 text-sm mt-2 text-center"></p>
+                <button id="logoutButton" class="text-sm text-gray-500 hover:text-red-500">로그아웃</button>
             </div>
+            <div id="site-list" class="space-y-3 mb-6 min-h-[120px]"></div>
+            <div id="add-site-form" class="bg-gray-50 p-4 rounded-lg">
+                <h3 class="font-semibold mb-3 text-gray-700">새 사이트 추가 (최대 3개)</h3>
+                <div class="space-y-3">
+                    <input id="siteNameInput" type="text" placeholder="이름 (예: 전남대 공지)" class="w-full px-3 py-2 bg-white rounded-md border">
+                    <input id="siteUrlInput" type="url" placeholder="URL (예: https://...)" class="w-full px-3 py-2 bg-white rounded-md border">
+                    <button id="addSiteButton" class="w-full px-4 py-2 font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">
+                        추가하기
+                    </button>
+                </div>
+            </div>
+            <p id="errorMessage" class="text-red-500 text-sm mt-2 text-center"></p>
+        </div>
 
-            <!-- 오른쪽 컬럼: 실시간 알림 로그 -->
-            <div class="bg-white rounded-2xl shadow-lg p-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6">실시간 알림 로그</h2>
-                <div id="notification-log" class="h-96 overflow-y-auto space-y-3 pr-2"></div>
-            </div>
+        <!-- 오른쪽 컬럼: 실시간 알림 로그 -->
+        <div class="bg-white rounded-2xl shadow-lg p-8">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">실시간 알림 로그</h2>
+            <div id="notification-log" class="h-96 overflow-y-auto space-y-3 pr-2"></div>
         </div>
     </div>
+</div>
 </div>
 
 <script>
@@ -86,13 +86,10 @@
     const notificationLog = document.getElementById('notification-log');
 
     let currentStudentId = null;
-    let eventSource = null;
+    let notificationInterval = null;
 
     function isValidUrl(string) {
-        try {
-            new URL(string);
-            return true;
-        } catch (_) { return false; }
+        try { new URL(string); return true; } catch (_) { return false; }
     }
 
     function getLogs(studentId) { return JSON.parse(localStorage.getItem(`logs_${studentId}`)) || []; }
@@ -117,8 +114,7 @@
                             <p class="mt-1 text-sm text-gray-600">${log.title}</p>
                         </div>
                         <p class="ml-3 text-xs text-gray-400">${log.time}</p>
-                    </div>
-                `;
+                    </div>`;
                 notificationLog.appendChild(logEntry);
             });
         }
@@ -128,7 +124,7 @@
         siteList.innerHTML = '';
         errorMessage.textContent = '';
         if (sites.length === 0) {
-            siteList.innerHTML = '<p class="text-center text-gray-400 p-4">등록된 사이트가 없습니다. 아래에서 추가해주세요.</p>';
+            siteList.innerHTML = '<p class="text-center text-gray-400 p-4">등록된 사이트가 없습니다.</p>';
         } else {
             sites.forEach(site => {
                 const siteElement = document.createElement('div');
@@ -138,8 +134,7 @@
                         <p class="font-semibold text-gray-800">${site.name}</p>
                         <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate">${site.url}</a>
                     </div>
-                    <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${btoa(site.url)}">X</button>
-                `;
+                    <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${btoa(site.url)}">X</button>`;
                 siteList.appendChild(siteElement);
             });
         }
@@ -156,7 +151,7 @@
         }
     }
 
-    async function apiRequest(endpoint, params) {
+    async function apiRequest(endpoint, params = {}) {
         const url = `/api/${endpoint}?` + new URLSearchParams(params).toString();
         try {
             const response = await fetch(url);
@@ -170,46 +165,38 @@
         }
     }
 
-    // ✨ 로그인 이벤트 핸들러 수정 ✨
+    async function checkNewNotifications() {
+        if (!currentStudentId) return;
+        const newNotifications = await apiRequest('get-notifications', { studentId: currentStudentId });
+        if (newNotifications && newNotifications.length > 0) {
+            console.log(`부재중 알림 ${newNotifications.length}개 수신:`, newNotifications);
+            newNotifications.reverse().forEach(log => saveLog(currentStudentId, log));
+            renderLogs(getLogs(currentStudentId));
+        }
+    }
+
     loginButton.addEventListener('click', async () => {
         const studentId = studentIdInput.value.trim();
         if (studentId.length !== 6) {
-            alert('학번은 6자리로 입력해주세요.');
-            return;
+            alert('학번은 6자리로 입력해주세요.'); return;
         }
-
-        const data = await apiRequest('login', { studentId });
-        if (data !== null) {
+        const sites = await apiRequest('login', { studentId });
+        if (sites !== null) {
             currentStudentId = studentId;
             welcomeMessage.textContent = `${currentStudentId}님, 환영합니다.`;
-            renderSites(data.sites);
-
-            // 부재중 알림이 있으면 기존 로그에 추가
-            if (data.missedNotifications && data.missedNotifications.length > 0) {
-                data.missedNotifications.reverse().forEach(log => {
-                    saveLog(currentStudentId, log);
-                });
-            }
-            renderLogs(getLogs(currentStudentId)); // 모든 로그 렌더링
-
+            renderSites(sites);
+            renderLogs(getLogs(currentStudentId)); // Load persistent logs first
             switchView(false);
 
-            if (eventSource) eventSource.close();
-            eventSource = new EventSource(`/api/events?studentId=${currentStudentId}`);
-
-            eventSource.onmessage = function(event) {
-                const newLog = JSON.parse(event.data);
-                console.log("실시간 알림 수신:", newLog);
-                saveLog(currentStudentId, newLog);
-                renderLogs(getLogs(currentStudentId));
-            };
-
-            eventSource.onerror = function() { console.error("SSE 연결 오류"); };
+            // Check for missed notifications immediately after login and then periodically
+            checkNewNotifications();
+            if (notificationInterval) clearInterval(notificationInterval);
+            notificationInterval = setInterval(checkNewNotifications, 10000); // 10초마다 확인
         }
     });
 
     logoutButton.addEventListener('click', () => {
-        if (eventSource) eventSource.close();
+        if (notificationInterval) clearInterval(notificationInterval);
         currentStudentId = null;
         studentIdInput.value = '';
         notificationLog.innerHTML = '';
@@ -219,12 +206,9 @@
     addSiteButton.addEventListener('click', async () => {
         const siteName = siteNameInput.value.trim();
         const siteUrl = siteUrlInput.value.trim();
-        if (!siteName || !siteUrl) {
-            errorMessage.textContent = '이름과 URL을 모두 입력해주세요.'; return;
-        }
-        if (!isValidUrl(siteUrl)) {
-            errorMessage.textContent = '올바른 URL 형식이 아닙니다.'; return;
-        }
+        if (!siteName || !siteUrl) { errorMessage.textContent = '이름과 URL을 모두 입력해주세요.'; return; }
+        if (!isValidUrl(siteUrl)) { errorMessage.textContent = '올바른 URL 형식이 아닙니다.'; return; }
+
         const sites = await apiRequest('add-site', { studentId: currentStudentId, siteName, siteUrlB64: btoa(siteUrl) });
         if (sites !== null) {
             siteNameInput.value = '';

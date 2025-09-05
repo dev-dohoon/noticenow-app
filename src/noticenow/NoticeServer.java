@@ -1,12 +1,12 @@
 package noticenow;
 
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -14,7 +14,7 @@ import redis.clients.jedis.JedisPool;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.PrintWriter;
+import java.lang.reflect.Type;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +25,6 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -34,7 +33,6 @@ public class NoticeServer {
 
     private static final Gson gson = new Gson();
     private static JedisPool jedisPool;
-    private static final Map<String, PrintWriter> sseClients = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
         initializeRedis();
@@ -45,12 +43,11 @@ public class NoticeServer {
         server.createContext("/api/login", new LoginHandler());
         server.createContext("/api/add-site", new AddSiteHandler());
         server.createContext("/api/delete-site", new DeleteSiteHandler());
-        server.createContext("/api/events", new SseHandler());
+        server.createContext("/api/get-notifications", new GetNotificationsHandler()); // 새 알림 확인 API
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
 
         System.out.println("✅ 서버가 http://localhost:8080 에서 시작되었습니다.");
-        System.out.println("Cloudtype 배포 주소로 접속해주세요.");
     }
 
     private static void initializeRedis() {
@@ -59,12 +56,10 @@ public class NoticeServer {
         String redisPassword = System.getenv("REDIS_PASSWORD");
 
         if (redisHost == null || redisPortStr == null) {
-            System.err.println("❌ Redis 환경 변수가 설정되지 않았습니다. 로컬 테스트 모드로 전환합니다.");
             redisHost = "localhost";
             redisPortStr = "6379";
             redisPassword = null;
         }
-
         int redisPort = Integer.parseInt(redisPortStr);
         jedisPool = new JedisPool(redisHost, redisPort, null, redisPassword);
         System.out.println("✅ Redis DB가 성공적으로 연결되었습니다.");
@@ -79,11 +74,10 @@ public class NoticeServer {
         System.out.println("🔄 백그라운드 확인 작업 시작...");
         try (Jedis jedis = jedisPool.getResource()) {
             for (String userKey : jedis.keys("user:*")) {
-                String studentId = userKey.substring(5);
                 String userDataJson = jedis.get(userKey);
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
-
                 boolean needsDbUpdate = false;
+
                 for (MonitoredSite site : userData.getSites()) {
                     try {
                         Document doc = Jsoup.connect(site.getUrl()).get();
@@ -92,7 +86,6 @@ public class NoticeServer {
                         currentTitlesElements.forEach(el -> newTitlesList.add(el.text()));
 
                         List<String> oldTitles = site.getLastTitles();
-
                         if (oldTitles == null) {
                             site.setLastTitles(newTitlesList);
                             needsDbUpdate = true;
@@ -104,23 +97,18 @@ public class NoticeServer {
                             addedTitles.removeAll(oldTitles);
 
                             if (!addedTitles.isEmpty()) {
-                                System.out.printf("🚨 새 공지 발견! [%s] %s%n", studentId, site.getName());
+                                System.out.printf("🚨 새 공지 발견! [%s] %s%n", userKey, site.getName());
                                 for (String newTitle : addedTitles) {
                                     String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-                                    Map<String, String> newLog = Map.of(
-                                            "siteName", site.getName(),
-                                            "title", newTitle,
-                                            "time", time
-                                    );
-                                    String notificationJson = gson.toJson(newLog);
-                                    sendSseEvent(studentId, notificationJson);
+                                    Map<String, String> newLog = Map.of("siteName", site.getName(), "title", newTitle, "time", time);
+                                    userData.addMissedNotification(newLog); // "부재중 알림"으로 저장
+                                    needsDbUpdate = true;
                                 }
                             }
                             site.setLastTitles(newTitlesList);
-                            needsDbUpdate = true;
                         }
                     } catch (IOException e) {
-                        System.err.printf("❌ 사이트 확인 중 오류 [%s]: %s%n", site.getName(), e.getMessage());
+                        System.err.printf("❌ 사이트 확인 오류 [%s]: %s%n", site.getName(), e.getMessage());
                     }
                 }
                 if (needsDbUpdate) {
@@ -128,41 +116,43 @@ public class NoticeServer {
                 }
             }
         } catch (Exception e) {
-            System.err.println("❌ Redis 작업 중 오류 발생: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    private static void sendSseEvent(String studentId, String data) {
-        PrintWriter writer = sseClients.get(studentId);
-        if (writer != null) {
-            writer.write("data: " + data + "\n\n");
-            writer.flush(); // ✨ 이 부분이 핵심적인 수정 사항입니다! ✨
-            if (writer.checkError()) {
-                System.out.println("❌ SSE 전송 실패, 클라이언트 연결 종료됨: " + studentId);
-                sseClients.remove(studentId);
-            } else {
-                System.out.println("📨 SSE 이벤트 전송 완료 -> " + studentId);
-            }
+            System.err.println("❌ Redis 작업 오류: " + e.getMessage());
         }
     }
 
     // --- 핸들러들 ---
 
+    static class GetNotificationsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
+            String studentId = params.get("studentId");
+            String userKey = "user:" + studentId;
+            List<Map<String, String>> missedNotifications = new ArrayList<>();
+
+            try (Jedis jedis = jedisPool.getResource()) {
+                String userDataJson = jedis.get(userKey);
+                if (userDataJson != null) {
+                    UserData userData = gson.fromJson(userDataJson, UserData.class);
+                    missedNotifications.addAll(userData.getMissedNotifications());
+                    if (!missedNotifications.isEmpty()) {
+                        userData.clearMissedNotifications();
+                        jedis.set(userKey, gson.toJson(userData));
+                    }
+                }
+            }
+            sendJsonResponse(exchange, 200, gson.toJson(missedNotifications));
+        }
+    }
+
     static class StaticFileHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String path = exchange.getRequestURI().getPath();
-            if (path.equals("/")) {
-                path = "/index.html";
-            }
+            if (path.equals("/")) path = "/index.html";
             try (InputStream inputStream = NoticeServer.class.getResourceAsStream(path)) {
                 if (inputStream == null) {
-                    String response = "404 (Not Found)\n";
-                    exchange.sendResponseHeaders(404, response.length());
-                    try (OutputStream os = exchange.getResponseBody()) {
-                        os.write(response.getBytes());
-                    }
+                    sendResponse(exchange, 404, "404 Not Found");
                 } else {
                     exchange.sendResponseHeaders(200, 0);
                     try (OutputStream os = exchange.getResponseBody()) {
@@ -180,7 +170,6 @@ public class NoticeServer {
             String studentId = params.get("studentId");
             String userKey = "user:" + studentId;
             UserData userData;
-
             try (Jedis jedis = jedisPool.getResource()) {
                 String userDataJson = jedis.get(userKey);
                 if (userDataJson == null) {
@@ -205,10 +194,6 @@ public class NoticeServer {
 
             try (Jedis jedis = jedisPool.getResource()) {
                 String userDataJson = jedis.get(userKey);
-                if (userDataJson == null) {
-                    sendJsonResponse(exchange, 403, "{\"error\":\"로그인 정보가 없습니다.\"}");
-                    return;
-                }
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
                 if (userData.getSites().size() >= 3) {
                     sendJsonResponse(exchange, 400, "{\"error\":\"사이트는 최대 3개까지 등록 가능합니다.\"}");
@@ -232,10 +217,6 @@ public class NoticeServer {
 
             try (Jedis jedis = jedisPool.getResource()) {
                 String userDataJson = jedis.get(userKey);
-                if (userDataJson == null) {
-                    sendJsonResponse(exchange, 403, "{\"error\":\"로그인 정보가 없습니다.\"}");
-                    return;
-                }
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
                 String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.removeSite(siteUrl);
@@ -245,62 +226,27 @@ public class NoticeServer {
         }
     }
 
-    static class SseHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
-            String studentId = params.get("studentId");
-            if (studentId == null || studentId.isBlank()) {
-                exchange.sendResponseHeaders(400, -1);
-                return;
-            }
-
-            exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=UTF-8");
-            exchange.getResponseHeaders().set("Cache-Control", "no-cache");
-            exchange.getResponseHeaders().set("Connection", "keep-alive");
-            exchange.sendResponseHeaders(200, 0);
-
-            PrintWriter writer = new PrintWriter(exchange.getResponseBody(), false, StandardCharsets.UTF_8); // autoFlush를 false로 변경
-            sseClients.put(studentId, writer);
-            System.out.println("✅ SSE 클라이언트 연결됨: " + studentId);
-
-            try {
-                while (!writer.checkError()) {
-                    writer.write(": keep-alive\n\n");
-                    writer.flush(); // ✨ keep-alive 신호도 즉시 전송합니다. ✨
-                    Thread.sleep(20000);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } finally {
-                sseClients.remove(studentId);
-                System.out.println("❌ SSE 클라이언트 연결 종료: " + studentId);
-            }
+    private static void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
+        exchange.sendResponseHeaders(code, body.getBytes(StandardCharsets.UTF_8).length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    private static void sendJsonResponse(HttpExchange exchange, int code, String json) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        sendResponse(exchange, code, json);
     }
 
     private static Map<String, String> queryToMap(String query) {
         Map<String, String> result = new HashMap<>();
-        if (query == null || query.isEmpty()) {
-            return result;
-        }
+        if (query == null) return result;
         for (String param : query.split("&")) {
             String[] pair = param.split("=", 2);
             if (pair.length > 1) {
                 result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
-            } else {
-                result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), "");
             }
         }
         return result;
-    }
-
-    private static void sendJsonResponse(HttpExchange exchange, int statusCode, String json) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF_8");
-        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-        exchange.sendResponseHeaders(statusCode, jsonBytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(jsonBytes);
-        }
     }
 }
