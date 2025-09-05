@@ -1,30 +1,30 @@
 package noticenow;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
 
-// 한 명의 사용자에 대한 모든 데이터를 담는 클래스
 public class UserData {
-    // 사용자가 등록한 사이트 목록
-    private final List<MonitoredSite> sites = new CopyOnWriteArrayList<>();
+    // transient 키워드는 이 필드를 JSON으로 변환할 때 제외하라는 의미입니다.
+    // Firebase를 사용하지 않으므로 이제 필요 없습니다.
+    // private transient String fcmToken;
+    private List<MonitoredSite> sites;
 
-    // 사이트 목록을 반환하는 메소드
+    public UserData() {
+        this.sites = new ArrayList<>();
+    }
+
     public List<MonitoredSite> getSites() {
         return sites;
     }
 
-    // 새 사이트를 추가하는 메소드
     public void addSite(MonitoredSite site) {
-        // 이미 등록된 URL인지 확인
-        boolean alreadyExists = sites.stream().anyMatch(s -> s.getUrl().equals(site.getUrl()));
-        if (!alreadyExists) {
-            sites.add(site);
+        if (this.sites.size() < 3) {
+            this.sites.add(site);
         }
     }
 
-    // URL을 기준으로 사이트를 삭제하는 메소드
     public void removeSite(String url) {
-        sites.removeIf(site -> Objects.equals(site.getUrl(), url));
+        this.sites.removeIf(site -> site.getUrl().equals(url));
     }
 }
+

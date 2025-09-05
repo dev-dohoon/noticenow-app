@@ -2,17 +2,17 @@ package noticenow;
 
 import java.util.List;
 
-// 감시할 사이트 하나의 정보를 담는 클래스
 public class MonitoredSite {
-    private final String name;
-    private final String url;
-    // 이 사이트에서 마지막으로 확인된 공지사항 제목 목록
+    private String name;
+    private String url;
     private List<String> lastTitles;
+
+    // Gson 라이브러리가 JSON 변환 시 기본 생성자를 사용하므로 추가해줍니다.
+    public MonitoredSite() {}
 
     public MonitoredSite(String name, String url) {
         this.name = name;
         this.url = url;
-        this.lastTitles = null; // 처음에는 null로 초기화
     }
 
     // Getters and Setters
