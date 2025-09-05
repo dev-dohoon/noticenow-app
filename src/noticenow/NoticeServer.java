@@ -18,6 +18,8 @@ import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -27,9 +29,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-
 
 public class NoticeServer {
 
@@ -134,12 +133,18 @@ public class NoticeServer {
         }
     }
 
-
     private static void sendSseEvent(String studentId, String data) {
         PrintWriter writer = sseClients.get(studentId);
         if (writer != null) {
             writer.write("data: " + data + "\n\n");
-            writer.flush();
+            // PrintWriter는 에러 발생 시 Exception을 던지지 않고 내부 상태만 변경함
+            // checkError()로 에러 상태를 확인하여 연결 종료를 감지
+            if (writer.checkError()) {
+                System.out.println("❌ SSE 전송 실패, 클라이언트 연결 종료됨: " + studentId);
+                sseClients.remove(studentId);
+            } else {
+                System.out.println("📨 SSE 이벤트 전송 완료 -> " + studentId);
+            }
         }
     }
 
@@ -241,25 +246,37 @@ public class NoticeServer {
         }
     }
 
+    // ✨ 최종 수정된 SseHandler ✨
     static class SseHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
+            String studentId = params.get("studentId");
+            if (studentId == null || studentId.isBlank()) {
+                exchange.sendResponseHeaders(400, -1); // Bad Request
+                return;
+            }
+
             exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=UTF-8");
             exchange.getResponseHeaders().set("Cache-Control", "no-cache");
             exchange.getResponseHeaders().set("Connection", "keep-alive");
             exchange.sendResponseHeaders(200, 0);
 
-            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
-            String studentId = params.get("studentId");
-
             PrintWriter writer = new PrintWriter(exchange.getResponseBody(), true, StandardCharsets.UTF_8);
             sseClients.put(studentId, writer);
+            System.out.println("✅ SSE 클라이언트 연결됨: " + studentId);
 
-            try {
-                exchange.getRequestBody().readAllBytes();
+            // 클라이언트가 연결을 끊을 때까지 이 핸들러가 종료되지 않도록 대기합니다.
+            // 클라이언트가 브라우저를 닫으면 getRequestBody()에서 IOException이 발생합니다.
+            try (InputStream is = exchange.getRequestBody()) {
+                while (is.read() != -1) {
+                    // Do nothing, just block to keep connection alive
+                }
+            } catch (IOException e) {
+                // This is expected when the client disconnects
             } finally {
                 sseClients.remove(studentId);
-                System.out.println("SSE client disconnected: " + studentId);
+                System.out.println("❌ SSE 클라이언트 연결 종료: " + studentId);
             }
         }
     }
