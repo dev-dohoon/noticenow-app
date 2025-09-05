@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NoticeNow - 나만의 공고 알리미</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .view { transition: opacity 0.3s ease-in-out; }
+        .hidden-view { opacity: 0; position: absolute; pointer-events: none; }
+        /* 로그 영역을 위한 스크롤바 스타일 */
+        #notification-log::-webkit-scrollbar {
+            width: 6px;
+        }
+        #notification-log::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        #notification-log::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+        #notification-log::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex items-center justify-center min-h-screen">
+
+<div class="w-full max-w-6xl mx-auto p-4">
+    <!-- 로그인 화면 -->
+    <div id="login-view" class="view">
+        <div class="bg-white rounded-2xl shadow-lg p-8 text-center max-w-xl mx-auto">
+            <h1 class="text-4xl font-bold text-gray-800">🚀 NoticeNow</h1>
+            <p class="text-gray-500 mt-2 mb-8">학번을 입력하여 시작하세요.</p>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <input id="studentIdInput" type="text" placeholder="예: 250101" maxlength="6"
+                       class="flex-grow w-full px-4 py-3 text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="loginButton"
+                        class="w-full sm:w-auto px-6 py-3 font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 whitespace-nowrap">
+                    로그인
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 메인 화면 (로그인 후 보임) -->
+    <div id="main-view" class="view hidden-view">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- 왼쪽 컬럼: 사이트 관리 -->
+            <div class="bg-white rounded-2xl shadow-lg p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">내 알림 사이트</h2>
+                        <p id="welcomeMessage" class="text-gray-500 text-sm"></p>
+                    </div>
+                    <button id="logoutButton" class="text-sm text-gray-500 hover:text-red-500">로그아웃</button>
+                </div>
+
+                <!-- 사이트 목록 -->
+                <div id="site-list" class="space-y-3 mb-6 min-h-[120px]">
+                    <!-- JavaScript로 동적 생성 -->
+                </div>
+
+                <!-- 사이트 추가 폼 -->
+                <div id="add-site-form" class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="font-semibold mb-3 text-gray-700">새 사이트 추가 (최대 3개)</h3>
+                    <div class="space-y-3">
+                        <input id="siteNameInput" type="text" placeholder="이름 (예: 전남대 공지)" class="w-full px-3 py-2 bg-white rounded-md border">
+                        <input id="siteUrlInput" type="url" placeholder="URL (예: https://...)" class="w-full px-3 py-2 bg-white rounded-md border">
+                        <button id="addSiteButton" class="w-full px-4 py-2 font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">
+                            추가하기
+                        </button>
+                    </div>
+                </div>
+                <p id="errorMessage" class="text-red-500 text-sm mt-2 text-center"></p>
+            </div>
+
+            <!-- 오른쪽 컬럼: 실시간 알림 로그 -->
+            <div class="bg-white rounded-2xl shadow-lg p-8">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">실시간 알림 로그</h2>
+                <div id="notification-log" class="h-96 overflow-y-auto space-y-3 pr-2">
+                    <!-- JavaScript로 로그 동적 생성 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Element selectors
+    const loginView = document.getElementById('login-view');
+    const mainView = document.getElementById('main-view');
+    const studentIdInput = document.getElementById('studentIdInput');
+    const loginButton = document.getElementById('loginButton');
+    const logoutButton = document.getElementById('logoutButton');
+    const welcomeMessage = document.getElementById('welcomeMessage');
+    const siteList = document.getElementById('site-list');
+    const siteNameInput = document.getElementById('siteNameInput');
+    const siteUrlInput = document.getElementById('siteUrlInput');
+    const addSiteButton = document.getElementById('addSiteButton');
+    const addSiteForm = document.getElementById('add-site-form');
+    const errorMessage = document.getElementById('errorMessage');
+    const notificationLog = document.getElementById('notification-log');
+
+    // State variables
+    let currentStudentId = null;
+    let eventSource = null; // SSE connection object
+
+    // --- Helper Functions ---
+    function isValidUrl(string) {
+        try {
+            new URL(string);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // --- Log Management Functions ---
+    function getLogs(studentId) {
+        return JSON.parse(localStorage.getItem(`logs_${studentId}`)) || [];
+    }
+
+    function saveLog(studentId, newLog) {
+        const logs = getLogs(studentId);
+        logs.unshift(newLog); // Add new log to the beginning
+        localStorage.setItem(`logs_${studentId}`, JSON.stringify(logs));
+    }
+
+    function renderLogs(logs) {
+        notificationLog.innerHTML = '';
+        if (logs.length === 0) {
+            notificationLog.innerHTML = `<p class="text-center text-gray-400 p-4">새로운 공지 알림이 여기에 표시됩니다.</p>`;
+        } else {
+            logs.forEach(log => {
+                const logEntry = document.createElement('div');
+                logEntry.className = 'bg-gray-50 rounded-lg p-3 border border-gray-200';
+                logEntry.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="w-0 flex-1">
+                            <p class="text-xs font-medium text-gray-900">[${log.siteName}]</p>
+                            <p class="mt-1 text-sm text-gray-600">${log.title}</p>
+                        </div>
+                        <p class="ml-3 text-xs text-gray-400">${log.time}</p>
+                    </div>
+                `;
+                notificationLog.appendChild(logEntry);
+            });
+        }
+    }
+
+    // --- UI Rendering Functions ---
+    function renderSites(sites) {
+        siteList.innerHTML = '';
+        errorMessage.textContent = '';
+        if (sites.length === 0) {
+            siteList.innerHTML = '<p class="text-center text-gray-400 p-4">등록된 사이트가 없습니다. 아래에서 추가해주세요.</p>';
+        } else {
+            sites.forEach(site => {
+                const siteElement = document.createElement('div');
+                siteElement.className = 'flex items-center justify-between bg-white p-3 rounded-md border';
+                siteElement.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${site.name}</p>
+                        <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate">${site.url}</a>
+                    </div>
+                    <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${site.url}">X</button>
+                `;
+                siteList.appendChild(siteElement);
+            });
+        }
+        addSiteForm.style.display = sites.length >= 3 ? 'none' : 'block';
+    }
+
+    function switchView(showLogin) {
+        if (showLogin) {
+            loginView.classList.remove('hidden-view');
+            mainView.classList.add('hidden-view');
+        } else {
+            loginView.classList.add('hidden-view');
+            mainView.classList.remove('hidden-view');
+        }
+    }
+
+    // --- API Communication ---
+    async function apiRequest(endpoint, params) {
+        const url = `/api/${endpoint}?` + new URLSearchParams(params).toString();
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || '알 수 없는 오류가 발생했습니다.');
+            }
+            errorMessage.textContent = ''; // Clear previous errors
+            return data;
+        } catch (error) {
+            errorMessage.textContent = error.message;
+            return null;
+        }
+    }
+
+    // --- Event Listeners ---
+    loginButton.addEventListener('click', async () => {
+        const studentId = studentIdInput.value.trim();
+        if (!studentId) {
+            alert('학번을 입력하세요.');
+            return;
+        }
+        if (studentId.length !== 6) {
+            alert('학번은 6자리로 입력해주세요.');
+            return;
+        }
+
+        const sites = await apiRequest('login', { studentId });
+        if (sites !== null) {
+            currentStudentId = studentId;
+            welcomeMessage.textContent = `${currentStudentId}님, 환영합니다.`;
+            renderSites(sites);
+            renderLogs(getLogs(currentStudentId)); // Load persistent logs
+            switchView(false);
+
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource(`/api/events?studentId=${currentStudentId}`);
+
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log("새 알림 수신:", data);
+                const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute:'2-digit' });
+                const newLog = { siteName: data.siteName, title: data.title, time: time };
+                saveLog(currentStudentId, newLog);
+                renderLogs(getLogs(currentStudentId));
+            };
+
+            eventSource.onerror = function() {
+                console.error("SSE 연결 오류 발생.");
+            };
+        }
+    });
+
+    logoutButton.addEventListener('click', () => {
+        if (eventSource) eventSource.close();
+        currentStudentId = null;
+        studentIdInput.value = '';
+        // Clear UI but keep logs in localStorage
+        notificationLog.innerHTML = '';
+        switchView(true);
+    });
+
+    addSiteButton.addEventListener('click', async () => {
+        const siteName = siteNameInput.value.trim();
+        const siteUrl = siteUrlInput.value.trim();
+
+        if (!siteName || !siteUrl) {
+            errorMessage.textContent = '이름과 URL을 모두 입력해주세요.';
+            return;
+        }
+
+        if (!isValidUrl(siteUrl)) {
+            errorMessage.textContent = '올바른 URL 형식이 아닙니다. (예: https://example.com)';
+            return;
+        }
+
+        const sites = await apiRequest('add-site', { studentId: currentStudentId, siteName, siteUrl });
+        if (sites !== null) {
+            siteNameInput.value = '';
+            siteUrlInput.value = '';
+            renderSites(sites);
+        }
+    });
+
+    siteList.addEventListener('click', async (event) => {
+        if (event.target.classList.contains('delete-button')) {
+            const siteUrl = event.target.dataset.url;
+            if (confirm(`'${siteUrl}' 사이트를 삭제하시겠습니까?`)) {
+                const sites = await apiRequest('delete-site', { studentId: currentStudentId, siteUrl });
+                if (sites !== null) {
+                    renderSites(sites);
+                }
+            }
+        }
+    });
+</script>
+</body>
+</html>
