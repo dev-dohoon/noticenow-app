@@ -2,15 +2,16 @@ package noticenow;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public class UserData {
-    // transient 키워드는 이 필드를 JSON으로 변환할 때 제외하라는 의미입니다.
-    // Firebase를 사용하지 않으므로 이제 필요 없습니다.
-    // private transient String fcmToken;
     private List<MonitoredSite> sites;
+    private List<Map<String, String>> missedNotifications; // 부재중 알림 저장 리스트
 
     public UserData() {
         this.sites = new ArrayList<>();
+        this.missedNotifications = new ArrayList<>();
     }
 
     public List<MonitoredSite> getSites() {
@@ -26,5 +27,20 @@ public class UserData {
     public void removeSite(String url) {
         this.sites.removeIf(site -> site.getUrl().equals(url));
     }
-}
 
+    // --- 부재중 알림 관련 메소드 ---
+    public List<Map<String, String>> getMissedNotifications() {
+        return missedNotifications;
+    }
+
+    public void addMissedNotification(Map<String, String> notification) {
+        if (this.missedNotifications == null) {
+            this.missedNotifications = new ArrayList<>();
+        }
+        this.missedNotifications.add(notification);
+    }
+
+    public void clearMissedNotifications() {
+        this.missedNotifications.clear();
+    }
+}
