@@ -19,7 +19,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64; // ✨ Base64를 위해 추가
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+
 
 public class NoticeServer {
 
@@ -70,7 +73,7 @@ public class NoticeServer {
 
     private static void startBackgroundChecker() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(NoticeServer::checkAllSites, 1, 1, TimeUnit.MINUTES);
+        scheduler.scheduleAtFixedRate(NoticeServer::checkAllSites, 0, 1, TimeUnit.MINUTES);
     }
 
     private static void checkAllSites() {
@@ -81,42 +84,47 @@ public class NoticeServer {
                 String userDataJson = jedis.get(userKey);
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
 
-                boolean needsUpdate = false;
+                boolean needsDbUpdate = false;
                 for (MonitoredSite site : userData.getSites()) {
                     try {
                         Document doc = Jsoup.connect(site.getUrl()).get();
-                        Elements currentTitles = doc.select("tr > td:nth-child(2)");
+                        Elements currentTitlesElements = doc.select("tr > td:nth-child(2)");
                         List<String> newTitlesList = new ArrayList<>();
-                        for (Element titleElement : currentTitles) {
-                            newTitlesList.add(titleElement.text());
-                        }
+                        currentTitlesElements.forEach(el -> newTitlesList.add(el.text()));
 
                         List<String> oldTitles = site.getLastTitles();
-                        if (oldTitles != null && !oldTitles.equals(newTitlesList)) {
+
+                        if (oldTitles == null) {
+                            site.setLastTitles(newTitlesList);
+                            needsDbUpdate = true;
+                            continue;
+                        }
+
+                        if (!newTitlesList.equals(oldTitles)) {
                             List<String> addedTitles = new ArrayList<>(newTitlesList);
                             addedTitles.removeAll(oldTitles);
 
                             if (!addedTitles.isEmpty()) {
-                                needsUpdate = true;
                                 System.out.printf("🚨 새 공지 발견! [%s] %s%n", studentId, site.getName());
                                 for (String newTitle : addedTitles) {
-                                    String notificationJson = String.format(
-                                            "{\"siteName\": \"%s\", \"title\": \"%s\"}",
-                                            site.getName().replace("\"", "\\\""),
-                                            newTitle.replace("\"", "\\\"")
+                                    String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+                                    Map<String, String> newLog = Map.of(
+                                            "siteName", site.getName(),
+                                            "title", newTitle,
+                                            "time", time
                                     );
+                                    String notificationJson = gson.toJson(newLog);
                                     sendSseEvent(studentId, notificationJson);
                                 }
                             }
+                            site.setLastTitles(newTitlesList);
+                            needsDbUpdate = true;
                         }
-                        site.setLastTitles(newTitlesList);
-                        if(oldTitles == null) needsUpdate = true;
-
                     } catch (IOException e) {
                         System.err.printf("❌ 사이트 확인 중 오류 [%s]: %s%n", site.getName(), e.getMessage());
                     }
                 }
-                if (needsUpdate) {
+                if (needsDbUpdate) {
                     jedis.set(userKey, gson.toJson(userData));
                 }
             }
@@ -126,6 +134,7 @@ public class NoticeServer {
         }
     }
 
+
     private static void sendSseEvent(String studentId, String data) {
         PrintWriter writer = sseClients.get(studentId);
         if (writer != null) {
@@ -133,6 +142,8 @@ public class NoticeServer {
             writer.flush();
         }
     }
+
+    // --- 핸들러들 ---
 
     static class StaticFileHandler implements HttpHandler {
         @Override
@@ -185,7 +196,6 @@ public class NoticeServer {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String siteName = params.get("siteName");
-            // ✨ Base64로 인코딩된 URL을 받음
             String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
 
@@ -200,7 +210,6 @@ public class NoticeServer {
                     sendJsonResponse(exchange, 400, "{\"error\":\"사이트는 최대 3개까지 등록 가능합니다.\"}");
                     return;
                 }
-                // ✨ Base64를 원래 URL로 디코딩
                 String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.addSite(new MonitoredSite(siteName, siteUrl));
                 jedis.set(userKey, gson.toJson(userData));
@@ -214,7 +223,6 @@ public class NoticeServer {
         public void handle(HttpExchange exchange) throws IOException {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
-            // ✨ Base64로 인코딩된 URL을 받음
             String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
 
@@ -225,7 +233,6 @@ public class NoticeServer {
                     return;
                 }
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
-                // ✨ Base64를 원래 URL로 디코딩해서 삭제할 사이트를 찾음
                 String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.removeSite(siteUrl);
                 jedis.set(userKey, gson.toJson(userData));
@@ -249,7 +256,6 @@ public class NoticeServer {
             sseClients.put(studentId, writer);
 
             try {
-                // Keep the connection open until client disconnects
                 exchange.getRequestBody().readAllBytes();
             } finally {
                 sseClients.remove(studentId);
