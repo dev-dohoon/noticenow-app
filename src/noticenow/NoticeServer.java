@@ -137,8 +137,6 @@ public class NoticeServer {
         PrintWriter writer = sseClients.get(studentId);
         if (writer != null) {
             writer.write("data: " + data + "\n\n");
-            // PrintWriter는 에러 발생 시 Exception을 던지지 않고 내부 상태만 변경함
-            // checkError()로 에러 상태를 확인하여 연결 종료를 감지
             if (writer.checkError()) {
                 System.out.println("❌ SSE 전송 실패, 클라이언트 연결 종료됨: " + studentId);
                 sseClients.remove(studentId);
@@ -266,14 +264,16 @@ public class NoticeServer {
             sseClients.put(studentId, writer);
             System.out.println("✅ SSE 클라이언트 연결됨: " + studentId);
 
-            // 클라이언트가 연결을 끊을 때까지 이 핸들러가 종료되지 않도록 대기합니다.
-            // 클라이언트가 브라우저를 닫으면 getRequestBody()에서 IOException이 발생합니다.
-            try (InputStream is = exchange.getRequestBody()) {
-                while (is.read() != -1) {
-                    // Do nothing, just block to keep connection alive
+            // 클라이언트가 연결을 유지하는 동안 이 스레드를 계속 실행하여 연결이 끊어지지 않도록 합니다.
+            try {
+                while (!writer.checkError()) {
+                    // 20초마다 keep-alive 신호를 보내 중간 프록시가 연결을 끊는 것을 방지합니다.
+                    writer.write(": keep-alive\n\n");
+                    if (writer.checkError()) break; // 쓰기 오류가 발생하면 클라이언트 연결이 끊어진 것입니다.
+                    Thread.sleep(20000); // 20초 대기
                 }
-            } catch (IOException e) {
-                // This is expected when the client disconnects
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // 스레드 인터럽트 상태 복원
             } finally {
                 sseClients.remove(studentId);
                 System.out.println("❌ SSE 클라이언트 연결 종료: " + studentId);
