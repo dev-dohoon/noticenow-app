@@ -1,39 +1,30 @@
 package noticenow;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * 한 명의 사용자에 대한 모든 데이터를 관리하는 클래스
- */
+// 한 명의 사용자에 대한 모든 데이터를 담는 클래스
 public class UserData {
-    private final String studentId;
-    private final List<MonitoredSite> monitoredSites;
-    private static final int MAX_SITES = 3;
+    // 사용자가 등록한 사이트 목록
+    private final List<MonitoredSite> sites = new CopyOnWriteArrayList<>();
 
-    public UserData(String studentId) {
-        this.studentId = studentId;
-        this.monitoredSites = new ArrayList<>();
+    // 사이트 목록을 반환하는 메소드
+    public List<MonitoredSite> getSites() {
+        return sites;
     }
 
-    public List<MonitoredSite> getMonitoredSites() {
-        return monitoredSites;
-    }
-
-    public boolean addSite(String siteName, String siteUrl) {
-        if (monitoredSites.size() < MAX_SITES) {
-            monitoredSites.add(new MonitoredSite(siteName, siteUrl));
-            return true; // 추가 성공
+    // 새 사이트를 추가하는 메소드
+    public void addSite(MonitoredSite site) {
+        // 이미 등록된 URL인지 확인
+        boolean alreadyExists = sites.stream().anyMatch(s -> s.getUrl().equals(site.getUrl()));
+        if (!alreadyExists) {
+            sites.add(site);
         }
-        return false; // 추가 실패 (개수 초과)
     }
 
-    public void removeSite(String siteUrl) {
-        monitoredSites.removeIf(site -> site.getSiteUrl().equals(siteUrl));
-    }
-
-    public Optional<MonitoredSite> findSiteByUrl(String url) {
-        return monitoredSites.stream().filter(site -> site.getSiteUrl().equals(url)).findFirst();
+    // URL을 기준으로 사이트를 삭제하는 메소드
+    public void removeSite(String url) {
+        sites.removeIf(site -> Objects.equals(site.getUrl(), url));
     }
 }

@@ -1,36 +1,34 @@
 package noticenow;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
 
-/**
- * 사용자가 등록한 개별 사이트 정보를 저장하는 클래스
- */
+// 감시할 사이트 하나의 정보를 담는 클래스
 public class MonitoredSite {
-    private final String siteName;
-    private final String siteUrl;
-    private Set<String> lastKnownTitles;
+    private final String name;
+    private final String url;
+    // 이 사이트에서 마지막으로 확인된 공지사항 제목 목록
+    private List<String> lastTitles;
 
-    public MonitoredSite(String siteName, String siteUrl) {
-        this.siteName = siteName;
-        this.siteUrl = siteUrl;
-        this.lastKnownTitles = new HashSet<>();
+    public MonitoredSite(String name, String url) {
+        this.name = name;
+        this.url = url;
+        this.lastTitles = null; // 처음에는 null로 초기화
     }
 
-    // Getter and Setter methods
-    public String getSiteName() {
-        return siteName;
+    // Getters and Setters
+    public String getName() {
+        return name;
     }
 
-    public String getSiteUrl() {
-        return siteUrl;
+    public String getUrl() {
+        return url;
     }
 
-    public Set<String> getLastKnownTitles() {
-        return lastKnownTitles;
+    public List<String> getLastTitles() {
+        return lastTitles;
     }
 
-    public void setLastKnownTitles(Set<String> titles) {
-        this.lastKnownTitles = titles;
+    public void setLastTitles(List<String> lastTitles) {
+        this.lastTitles = lastTitles;
     }
 }
