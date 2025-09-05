@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements; // <-- 이 줄이 추가되었습니다!
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
@@ -15,7 +16,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -34,10 +34,7 @@ public class NoticeServer {
     private static final Map<String, PrintWriter> sseClients = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
-        // Redis 데이터베이스 초기화
         initializeRedis();
-
-        // 1분마다 모든 사용자의 모든 사이트를 확인하는 백그라운드 작업 시작
         startBackgroundChecker();
 
         HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
@@ -54,18 +51,15 @@ public class NoticeServer {
     }
 
     private static void initializeRedis() {
-        // Cloudtype 환경 변수에서 Redis 연결 정보를 가져옵니다.
         String redisHost = System.getenv("REDIS_HOST");
         String redisPortStr = System.getenv("REDIS_PORT");
         String redisPassword = System.getenv("REDIS_PASSWORD");
 
-        if (redisHost == null || redisPortStr == null || redisPassword == null) {
-            System.err.println("❌ Redis 환경 변수(REDIS_HOST, REDIS_PORT, REDIS_PASSWORD)가 설정되지 않았습니다.");
-            System.err.println("로컬 테스트를 위해 기본값(localhost:6379)으로 연결을 시도합니다.");
-            // 로컬 테스트용 기본값
+        if (redisHost == null || redisPortStr == null) {
+            System.err.println("❌ Redis 환경 변수가 설정되지 않았습니다. 로컬 테스트 모드로 전환합니다.");
             redisHost = "localhost";
             redisPortStr = "6379";
-            redisPassword = null; // 로컬 Redis에 비밀번호가 없다면 null
+            redisPassword = null;
         }
 
         int redisPort = Integer.parseInt(redisPortStr);
@@ -81,9 +75,8 @@ public class NoticeServer {
     private static void checkAllSites() {
         System.out.println("🔄 백그라운드 확인 작업 시작...");
         try (Jedis jedis = jedisPool.getResource()) {
-            // "user:[학번]" 패턴을 가진 모든 키(모든 사용자)를 가져옵니다.
             for (String userKey : jedis.keys("user:*")) {
-                String studentId = userKey.substring(5); // "user:" 부분 제거
+                String studentId = userKey.substring(5);
                 String userDataJson = jedis.get(userKey);
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
 
@@ -116,22 +109,21 @@ public class NoticeServer {
                             }
                         }
                         site.setLastTitles(newTitlesList);
+                        if(oldTitles == null) needsUpdate = true;
 
                     } catch (IOException e) {
                         System.err.printf("❌ 사이트 확인 중 오류 [%s]: %s%n", site.getName(), e.getMessage());
                     }
                 }
-                // 변경된 lastTitles 정보를 DB에 다시 저장합니다.
                 if (needsUpdate) {
                     jedis.set(userKey, gson.toJson(userData));
                 }
             }
         } catch (Exception e) {
             System.err.println("❌ Redis 작업 중 오류 발생: " + e.getMessage());
+            e.printStackTrace();
         }
     }
-
-    // --- 핸들러들 및 유틸리티 메소드 (이하 코드) ---
 
     private static void sendSseEvent(String studentId, String data) {
         PrintWriter writer = sseClients.get(studentId);
@@ -148,23 +140,19 @@ public class NoticeServer {
             if (path.equals("/")) {
                 path = "/index.html";
             }
-            InputStream inputStream = NoticeServer.class.getResourceAsStream(path);
-
-            if (inputStream == null) {
-                String response = "404 (Not Found)\n";
-                exchange.sendResponseHeaders(404, response.length());
-                OutputStream os = exchange.getResponseBody();
-                os.write(response.getBytes());
-                os.close();
-            } else {
-                exchange.sendResponseHeaders(200, 0);
-                OutputStream os = exchange.getResponseBody();
-                final byte[] buffer = new byte[1024];
-                int count;
-                while ((count = inputStream.read(buffer)) >= 0) {
-                    os.write(buffer, 0, count);
+            try (InputStream inputStream = NoticeServer.class.getResourceAsStream(path)) {
+                if (inputStream == null) {
+                    String response = "404 (Not Found)\n";
+                    exchange.sendResponseHeaders(404, response.length());
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response.getBytes());
+                    }
+                } else {
+                    exchange.sendResponseHeaders(200, 0);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        inputStream.transferTo(os);
+                    }
                 }
-                os.close();
             }
         }
     }
@@ -172,7 +160,7 @@ public class NoticeServer {
     static class LoginHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            Map<String, String> params = queryToMap(exchange.getRequestURI());
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String userKey = "user:" + studentId;
             UserData userData;
@@ -193,7 +181,7 @@ public class NoticeServer {
     static class AddSiteHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            Map<String, String> params = queryToMap(exchange.getRequestURI());
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String siteName = params.get("siteName");
             String siteUrl = params.get("siteUrl");
@@ -220,7 +208,7 @@ public class NoticeServer {
     static class DeleteSiteHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            Map<String, String> params = queryToMap(exchange.getRequestURI());
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String siteUrl = params.get("siteUrl");
             String userKey = "user:" + studentId;
@@ -242,32 +230,36 @@ public class NoticeServer {
     static class SseHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=UTF-8");
             exchange.getResponseHeaders().set("Cache-Control", "no-cache");
             exchange.getResponseHeaders().set("Connection", "keep-alive");
             exchange.sendResponseHeaders(200, 0);
 
-            Map<String, String> params = queryToMap(exchange.getRequestURI());
+            Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
 
-            PrintWriter writer = new PrintWriter(exchange.getResponseBody());
+            PrintWriter writer = new PrintWriter(exchange.getResponseBody(), true, StandardCharsets.UTF_8);
             sseClients.put(studentId, writer);
 
-            exchange.getRequestBody().close(); // Keep connection open
+            // This is a simplified way to handle client disconnects.
+            // A more robust solution might involve heartbeats.
+            exchange.getRequestBody().readAllBytes(); // This will block until the client closes the connection
+            sseClients.remove(studentId);
+            System.out.println("SSE client disconnected: " + studentId);
         }
     }
 
-    private static Map<String, String> queryToMap(URI uri) {
+    private static Map<String, String> queryToMap(String query) {
         Map<String, String> result = new HashMap<>();
-        String query = uri.getQuery();
-        if (query != null) {
-            for (String param : query.split("&")) {
-                String[] pair = param.split("=");
-                if (pair.length > 1) {
-                    result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
-                } else {
-                    result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), "");
-                }
+        if (query == null || query.isEmpty()) {
+            return result;
+        }
+        for (String param : query.split("&")) {
+            String[] pair = param.split("=", 2);
+            if (pair.length > 1) {
+                result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
+            } else {
+                result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), "");
             }
         }
         return result;
