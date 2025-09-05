@@ -10,20 +10,10 @@
         body { font-family: 'Inter', sans-serif; }
         .view { transition: opacity 0.3s ease-in-out; }
         .hidden-view { opacity: 0; position: absolute; pointer-events: none; }
-        /* 로그 영역을 위한 스크롤바 스타일 */
-        #notification-log::-webkit-scrollbar {
-            width: 6px;
-        }
-        #notification-log::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-        #notification-log::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 3px;
-        }
-        #notification-log::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
+        #notification-log::-webkit-scrollbar { width: 6px; }
+        #notification-log::-webkit-scrollbar-track { background: #f1f1f1; }
+        #notification-log::-webkit-scrollbar-thumb { background: #888; border-radius: 3px; }
+        #notification-log::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
 </head>
 <body class="bg-gray-50 flex items-center justify-center min-h-screen">
@@ -57,13 +47,7 @@
                     </div>
                     <button id="logoutButton" class="text-sm text-gray-500 hover:text-red-500">로그아웃</button>
                 </div>
-
-                <!-- 사이트 목록 -->
-                <div id="site-list" class="space-y-3 mb-6 min-h-[120px]">
-                    <!-- JavaScript로 동적 생성 -->
-                </div>
-
-                <!-- 사이트 추가 폼 -->
+                <div id="site-list" class="space-y-3 mb-6 min-h-[120px]"></div>
                 <div id="add-site-form" class="bg-gray-50 p-4 rounded-lg">
                     <h3 class="font-semibold mb-3 text-gray-700">새 사이트 추가 (최대 3개)</h3>
                     <div class="space-y-3">
@@ -80,16 +64,13 @@
             <!-- 오른쪽 컬럼: 실시간 알림 로그 -->
             <div class="bg-white rounded-2xl shadow-lg p-8">
                 <h2 class="text-2xl font-bold text-gray-800 mb-6">실시간 알림 로그</h2>
-                <div id="notification-log" class="h-96 overflow-y-auto space-y-3 pr-2">
-                    <!-- JavaScript로 로그 동적 생성 -->
-                </div>
+                <div id="notification-log" class="h-96 overflow-y-auto space-y-3 pr-2"></div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-    // Element selectors
     const loginView = document.getElementById('login-view');
     const mainView = document.getElementById('main-view');
     const studentIdInput = document.getElementById('studentIdInput');
@@ -104,11 +85,9 @@
     const errorMessage = document.getElementById('errorMessage');
     const notificationLog = document.getElementById('notification-log');
 
-    // State variables
     let currentStudentId = null;
-    let eventSource = null; // SSE connection object
+    let eventSource = null;
 
-    // --- Helper Functions ---
     function isValidUrl(string) {
         try {
             new URL(string);
@@ -118,14 +97,13 @@
         }
     }
 
-    // --- Log Management Functions ---
     function getLogs(studentId) {
         return JSON.parse(localStorage.getItem(`logs_${studentId}`)) || [];
     }
 
     function saveLog(studentId, newLog) {
         const logs = getLogs(studentId);
-        logs.unshift(newLog); // Add new log to the beginning
+        logs.unshift(newLog);
         localStorage.setItem(`logs_${studentId}`, JSON.stringify(logs));
     }
 
@@ -151,7 +129,6 @@
         }
     }
 
-    // --- UI Rendering Functions ---
     function renderSites(sites) {
         siteList.innerHTML = '';
         errorMessage.textContent = '';
@@ -164,7 +141,7 @@
                 siteElement.innerHTML = `
                     <div>
                         <p class="font-semibold text-gray-800">${site.name}</p>
-                        <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate">${site.url}</a>
+                        <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate block">${site.url}</a>
                     </div>
                     <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${site.url}">X</button>
                 `;
@@ -184,7 +161,6 @@
         }
     }
 
-    // --- API Communication ---
     async function apiRequest(endpoint, params) {
         const url = `/api/${endpoint}?` + new URLSearchParams(params).toString();
         try {
@@ -193,7 +169,7 @@
             if (!response.ok) {
                 throw new Error(data.error || '알 수 없는 오류가 발생했습니다.');
             }
-            errorMessage.textContent = ''; // Clear previous errors
+            errorMessage.textContent = '';
             return data;
         } catch (error) {
             errorMessage.textContent = error.message;
@@ -201,24 +177,18 @@
         }
     }
 
-    // --- Event Listeners ---
     loginButton.addEventListener('click', async () => {
         const studentId = studentIdInput.value.trim();
-        if (!studentId) {
-            alert('학번을 입력하세요.');
-            return;
-        }
         if (studentId.length !== 6) {
             alert('학번은 6자리로 입력해주세요.');
             return;
         }
-
         const sites = await apiRequest('login', { studentId });
         if (sites !== null) {
             currentStudentId = studentId;
             welcomeMessage.textContent = `${currentStudentId}님, 환영합니다.`;
             renderSites(sites);
-            renderLogs(getLogs(currentStudentId)); // Load persistent logs
+            renderLogs(getLogs(currentStudentId));
             switchView(false);
 
             if (eventSource) eventSource.close();
@@ -226,15 +196,10 @@
 
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
-                console.log("새 알림 수신:", data);
                 const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute:'2-digit' });
                 const newLog = { siteName: data.siteName, title: data.title, time: time };
                 saveLog(currentStudentId, newLog);
                 renderLogs(getLogs(currentStudentId));
-            };
-
-            eventSource.onerror = function() {
-                console.error("SSE 연결 오류 발생.");
             };
         }
     });
@@ -243,7 +208,6 @@
         if (eventSource) eventSource.close();
         currentStudentId = null;
         studentIdInput.value = '';
-        // Clear UI but keep logs in localStorage
         notificationLog.innerHTML = '';
         switchView(true);
     });
@@ -253,16 +217,19 @@
         const siteUrl = siteUrlInput.value.trim();
 
         if (!siteName || !siteUrl) {
-            errorMessage.textContent = '이름과 URL을 모두 입력해주세요.';
-            return;
+            errorMessage.textContent = '이름과 URL을 모두 입력해주세요.'; return;
         }
-
         if (!isValidUrl(siteUrl)) {
-            errorMessage.textContent = '올바른 URL 형식이 아닙니다. (예: https://example.com)';
-            return;
+            errorMessage.textContent = '올바른 URL 형식이 아닙니다. (예: https://example.com)'; return;
         }
 
-        const sites = await apiRequest('add-site', { studentId: currentStudentId, siteName, siteUrl });
+        // ✨ URL을 Base64로 인코딩하여 전송
+        const sites = await apiRequest('add-site', {
+            studentId: currentStudentId,
+            siteName: siteName,
+            siteUrlB64: btoa(siteUrl)
+        });
+
         if (sites !== null) {
             siteNameInput.value = '';
             siteUrlInput.value = '';
@@ -274,7 +241,13 @@
         if (event.target.classList.contains('delete-button')) {
             const siteUrl = event.target.dataset.url;
             if (confirm(`'${siteUrl}' 사이트를 삭제하시겠습니까?`)) {
-                const sites = await apiRequest('delete-site', { studentId: currentStudentId, siteUrl });
+
+                // ✨ URL을 Base64로 인코딩하여 전송
+                const sites = await apiRequest('delete-site', {
+                    studentId: currentStudentId,
+                    siteUrlB64: btoa(siteUrl)
+                });
+
                 if (sites !== null) {
                     renderSites(sites);
                 }

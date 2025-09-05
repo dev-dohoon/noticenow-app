@@ -7,7 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements; // <-- 이 줄이 추가되었습니다!
+import org.jsoup.select.Elements;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
@@ -19,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64; // ✨ Base64를 위해 추가
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -184,7 +185,8 @@ public class NoticeServer {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String siteName = params.get("siteName");
-            String siteUrl = params.get("siteUrl");
+            // ✨ Base64로 인코딩된 URL을 받음
+            String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
 
             try (Jedis jedis = jedisPool.getResource()) {
@@ -198,6 +200,8 @@ public class NoticeServer {
                     sendJsonResponse(exchange, 400, "{\"error\":\"사이트는 최대 3개까지 등록 가능합니다.\"}");
                     return;
                 }
+                // ✨ Base64를 원래 URL로 디코딩
+                String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.addSite(new MonitoredSite(siteName, siteUrl));
                 jedis.set(userKey, gson.toJson(userData));
                 sendJsonResponse(exchange, 200, gson.toJson(userData.getSites()));
@@ -210,7 +214,8 @@ public class NoticeServer {
         public void handle(HttpExchange exchange) throws IOException {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
-            String siteUrl = params.get("siteUrl");
+            // ✨ Base64로 인코딩된 URL을 받음
+            String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
 
             try (Jedis jedis = jedisPool.getResource()) {
@@ -220,6 +225,8 @@ public class NoticeServer {
                     return;
                 }
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
+                // ✨ Base64를 원래 URL로 디코딩해서 삭제할 사이트를 찾음
+                String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.removeSite(siteUrl);
                 jedis.set(userKey, gson.toJson(userData));
                 sendJsonResponse(exchange, 200, gson.toJson(userData.getSites()));
@@ -241,11 +248,13 @@ public class NoticeServer {
             PrintWriter writer = new PrintWriter(exchange.getResponseBody(), true, StandardCharsets.UTF_8);
             sseClients.put(studentId, writer);
 
-            // This is a simplified way to handle client disconnects.
-            // A more robust solution might involve heartbeats.
-            exchange.getRequestBody().readAllBytes(); // This will block until the client closes the connection
-            sseClients.remove(studentId);
-            System.out.println("SSE client disconnected: " + studentId);
+            try {
+                // Keep the connection open until client disconnects
+                exchange.getRequestBody().readAllBytes();
+            } finally {
+                sseClients.remove(studentId);
+                System.out.println("SSE client disconnected: " + studentId);
+            }
         }
     }
 
