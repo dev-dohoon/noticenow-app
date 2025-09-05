@@ -1,6 +1,6 @@
 # 1. 베이스 이미지로 OpenJDK 21 버전을 사용합니다.
 # 우리 프로젝트가 Java 21 버전으로 만들어졌다는 의미입니다.
-FROM openjdk:21-jdk-slim
+FROM maven:3.9-eclipse-temurin-21
 
 # 2. 컨테이너(서버 컴퓨터) 내부에 /app 이라는 작업 폴더를 만듭니다.
 WORKDIR /app
