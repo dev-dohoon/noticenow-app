@@ -51,7 +51,7 @@
                 <div id="add-site-form" class="bg-gray-50 p-4 rounded-lg">
                     <h3 class="font-semibold mb-3 text-gray-700">새 사이트 추가 (최대 3개)</h3>
                     <div class="space-y-3">
-                        <input id="siteNameInput" type="text" placeholder="이름 (예: 전남대)" class="w-full px-3 py-2 bg-white rounded-md border">
+                        <input id="siteNameInput" type="text" placeholder="이름 (예: 전남대 공지)" class="w-full px-3 py-2 bg-white rounded-md border">
                         <input id="siteUrlInput" type="url" placeholder="URL (예: https://...)" class="w-full px-3 py-2 bg-white rounded-md border">
                         <button id="addSiteButton" class="w-full px-4 py-2 font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">
                             추가하기
@@ -86,7 +86,7 @@
     const notificationLog = document.getElementById('notification-log');
 
     let currentStudentId = null;
-    let notificationInterval = null;
+    let eventSource = null;
 
     function isValidUrl(string) {
         try { new URL(string); return true; } catch (_) { return false; }
@@ -132,9 +132,9 @@
                 siteElement.innerHTML = `
                     <div>
                         <p class="font-semibold text-gray-800">${site.name}</p>
-                        <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate">${site.url}</a>
+                        <a href="${site.url}" target="_blank" class="text-xs text-blue-500 truncate" title="${site.url}">${site.url}</a>
                     </div>
-                    <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${btoa(site.url)}">X</button>`;
+                    <button class="delete-button text-red-400 hover:text-red-600 font-bold p-2" data-url="${site.url}">X</button>`;
                 siteList.appendChild(siteElement);
             });
         }
@@ -152,7 +152,13 @@
     }
 
     async function apiRequest(endpoint, params = {}) {
-        const url = `/api/${endpoint}?` + new URLSearchParams(params).toString();
+        // ✨ URL 파라미터를 안전하게 전송하기 위한 최종 수정 ✨
+        const searchParams = new URLSearchParams();
+        for (const key in params) {
+            searchParams.append(key, params[key]);
+        }
+        const url = `/api/${endpoint}?` + searchParams.toString();
+
         try {
             const response = await fetch(url);
             const data = await response.json();
@@ -162,16 +168,6 @@
         } catch (error) {
             errorMessage.textContent = error.message;
             return null;
-        }
-    }
-
-    async function checkNewNotifications() {
-        if (!currentStudentId) return;
-        const newNotifications = await apiRequest('get-notifications', { studentId: currentStudentId });
-        if (newNotifications && newNotifications.length > 0) {
-            console.log(`새 알림 ${newNotifications.length}개 수신:`, newNotifications);
-            newNotifications.reverse().forEach(log => saveLog(currentStudentId, log));
-            renderLogs(getLogs(currentStudentId));
         }
     }
 
@@ -185,20 +181,23 @@
             currentStudentId = studentId;
             welcomeMessage.textContent = `${currentStudentId}님, 환영합니다.`;
             renderSites(sites);
-
-            // 먼저 기존 로그를 보여주고, 그 다음에 부재중 알림을 확인합니다.
             renderLogs(getLogs(currentStudentId));
-            await checkNewNotifications();
-
             switchView(false);
 
-            if (notificationInterval) clearInterval(notificationInterval);
-            notificationInterval = setInterval(checkNewNotifications, 10000); // 10초마다 새 알림 확인
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource(`/api/events?studentId=${currentStudentId}`);
+            eventSource.onmessage = function(event) {
+                const newLog = JSON.parse(event.data);
+                console.log("실시간 알림 수신:", newLog);
+                saveLog(currentStudentId, newLog);
+                renderLogs(getLogs(currentStudentId));
+            };
+            eventSource.onerror = function() { console.error("SSE 연결 오류"); };
         }
     });
 
     logoutButton.addEventListener('click', () => {
-        if (notificationInterval) clearInterval(notificationInterval);
+        if (eventSource) eventSource.close();
         currentStudentId = null;
         studentIdInput.value = '';
         notificationLog.innerHTML = '';
@@ -211,7 +210,7 @@
         if (!siteName || !siteUrl) { errorMessage.textContent = '이름과 URL을 모두 입력해주세요.'; return; }
         if (!isValidUrl(siteUrl)) { errorMessage.textContent = '올바른 URL 형식이 아닙니다.'; return; }
 
-        const sites = await apiRequest('add-site', { studentId: currentStudentId, siteName, siteUrlB64: btoa(siteUrl) });
+        const sites = await apiRequest('add-site', { studentId: currentStudentId, siteName, siteUrl });
         if (sites !== null) {
             siteNameInput.value = '';
             siteUrlInput.value = '';
@@ -221,9 +220,9 @@
 
     siteList.addEventListener('click', async (event) => {
         if (event.target.classList.contains('delete-button')) {
-            const siteUrlB64 = event.target.dataset.url;
-            if (confirm(`사이트를 삭제하시겠습니까?`)) {
-                const sites = await apiRequest('delete-site', { studentId: currentStudentId, siteUrlB64 });
+            const siteUrl = event.target.dataset.url;
+            if (confirm(`'${siteUrl}' 사이트를 삭제하시겠습니까?`)) {
+                const sites = await apiRequest('delete-site', { studentId: currentStudentId, siteUrl });
                 if (sites !== null) {
                     renderSites(sites);
                 }

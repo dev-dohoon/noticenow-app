@@ -6,7 +6,7 @@ import java.util.Map;
 
 public class UserData {
     private List<MonitoredSite> sites;
-    private List<Map<String, String>> missedNotifications; // 부재중 알림 저장 리스트
+    private List<Map<String, String>> missedNotifications;
 
     public UserData() {
         this.sites = new ArrayList<>();
@@ -14,16 +14,12 @@ public class UserData {
     }
 
     public List<MonitoredSite> getSites() {
-        if (this.sites == null) {
-            this.sites = new ArrayList<>();
-        }
+        if (this.sites == null) this.sites = new ArrayList<>();
         return sites;
     }
 
     public void addSite(MonitoredSite site) {
-        if (this.sites == null) {
-            this.sites = new ArrayList<>();
-        }
+        if (this.sites == null) this.sites = new ArrayList<>();
         if (this.sites.size() < 3) {
             this.sites.add(site);
         }
@@ -35,18 +31,13 @@ public class UserData {
         }
     }
 
-    // --- 부재중 알림 관련 메소드 ---
     public List<Map<String, String>> getMissedNotifications() {
-        if (this.missedNotifications == null) {
-            this.missedNotifications = new ArrayList<>();
-        }
+        if (this.missedNotifications == null) this.missedNotifications = new ArrayList<>();
         return missedNotifications;
     }
 
     public void addMissedNotification(Map<String, String> notification) {
-        if (this.missedNotifications == null) {
-            this.missedNotifications = new ArrayList<>();
-        }
+        if (this.missedNotifications == null) this.missedNotifications = new ArrayList<>();
         this.missedNotifications.add(notification);
     }
 

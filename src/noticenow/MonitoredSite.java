@@ -1,21 +1,19 @@
 package noticenow;
 
 import java.util.List;
+import java.util.Objects;
 
 public class MonitoredSite {
     private String name;
     private String url;
     private List<String> lastTitles;
 
-    // Gson 라이브러리가 JSON 변환 시 기본 생성자를 사용하므로 추가해줍니다.
-    public MonitoredSite() {}
-
     public MonitoredSite(String name, String url) {
         this.name = name;
         this.url = url;
+        this.lastTitles = null;
     }
 
-    // Getters and Setters
     public String getName() {
         return name;
     }
@@ -30,5 +28,18 @@ public class MonitoredSite {
 
     public void setLastTitles(List<String> lastTitles) {
         this.lastTitles = lastTitles;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        MonitoredSite that = (MonitoredSite) o;
+        return Objects.equals(url, that.url);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(url);
     }
 }

@@ -21,15 +21,13 @@
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
         </dependency>
-
-        <!-- Redis Client: Jedis -->
+        <!-- Redis Client (Jedis) -->
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
             <version>5.1.0</version>
         </dependency>
-
-        <!-- JSON Parser: Gson -->
+        <!-- JSON Parser (Gson) -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
@@ -38,6 +36,7 @@
     </dependencies>
 
     <build>
+        <!-- 소스코드와 리소스 파일의 위치를 알려줍니다 -->
         <sourceDirectory>src</sourceDirectory>
         <resources>
             <resource>
@@ -45,10 +44,11 @@
             </resource>
         </resources>
         <plugins>
+            <!-- 모든 코드를 하나의 실행 파일로 만들어주는 플러그인 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.6.0</version>
+                <version>3.7.1</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -71,5 +71,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>
