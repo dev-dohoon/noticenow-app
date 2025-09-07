@@ -86,7 +86,7 @@
     const notificationLog = document.getElementById('notification-log');
 
     let currentStudentId = null;
-    let eventSource = null;
+    let notificationInterval = null;
 
     function isValidUrl(string) {
         try { new URL(string); return true; } catch (_) { return false; }
@@ -152,7 +152,6 @@
     }
 
     async function apiRequest(endpoint, params = {}) {
-        // ✨ URL 파라미터를 안전하게 전송하기 위한 최종 수정 ✨
         const searchParams = new URLSearchParams();
         for (const key in params) {
             searchParams.append(key, params[key]);
@@ -171,6 +170,16 @@
         }
     }
 
+    async function checkNewNotifications() {
+        if (!currentStudentId) return;
+        const newNotifications = await apiRequest('get-notifications', { studentId: currentStudentId });
+        if (newNotifications && newNotifications.length > 0) {
+            console.log(`새 알림 ${newNotifications.length}개 수신:`, newNotifications);
+            newNotifications.reverse().forEach(log => saveLog(currentStudentId, log));
+            renderLogs(getLogs(currentStudentId));
+        }
+    }
+
     loginButton.addEventListener('click', async () => {
         const studentId = studentIdInput.value.trim();
         if (studentId.length !== 6) {
@@ -181,23 +190,20 @@
             currentStudentId = studentId;
             welcomeMessage.textContent = `${currentStudentId}님, 환영합니다.`;
             renderSites(sites);
+
+            // 먼저 기존 로그를 보여주고, 그 다음에 부재중 알림을 확인합니다.
             renderLogs(getLogs(currentStudentId));
+            await checkNewNotifications();
+
             switchView(false);
 
-            if (eventSource) eventSource.close();
-            eventSource = new EventSource(`/api/events?studentId=${currentStudentId}`);
-            eventSource.onmessage = function(event) {
-                const newLog = JSON.parse(event.data);
-                console.log("실시간 알림 수신:", newLog);
-                saveLog(currentStudentId, newLog);
-                renderLogs(getLogs(currentStudentId));
-            };
-            eventSource.onerror = function() { console.error("SSE 연결 오류"); };
+            if (notificationInterval) clearInterval(notificationInterval);
+            notificationInterval = setInterval(checkNewNotifications, 10000); // 10초마다 새 알림 확인
         }
     });
 
     logoutButton.addEventListener('click', () => {
-        if (eventSource) eventSource.close();
+        if (notificationInterval) clearInterval(notificationInterval);
         currentStudentId = null;
         studentIdInput.value = '';
         notificationLog.innerHTML = '';

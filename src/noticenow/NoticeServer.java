@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +41,7 @@ public class NoticeServer {
         server.createContext("/api/login", new LoginHandler());
         server.createContext("/api/add-site", new AddSiteHandler());
         server.createContext("/api/delete-site", new DeleteSiteHandler());
-        server.createContext("/api/get-notifications", new GetNotificationsHandler());
+        server.createContext("/api/get-notifications", new GetNotificationsHandler()); // 새 알림 확인 API
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
 
@@ -53,7 +54,6 @@ public class NoticeServer {
         String redisPassword = System.getenv("REDIS_PASSWORD");
 
         if (redisHost == null || redisPortStr == null) {
-            System.out.println("⚠️ Redis 환경 변수 없음. 로컬 테스트 모드로 실행합니다.");
             redisHost = "localhost";
             redisPortStr = "6379";
             redisPassword = null;
@@ -99,13 +99,13 @@ public class NoticeServer {
                                 for (String newTitle : addedTitles) {
                                     String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
                                     Map<String, String> newLog = Map.of("siteName", site.getName(), "title", newTitle, "time", time);
-                                    userData.addMissedNotification(newLog);
+                                    userData.addMissedNotification(newLog); // "부재중 알림"으로 저장
                                     needsDbUpdate = true;
                                 }
                             }
                             site.setLastTitles(newTitlesList);
                         }
-                    } catch (Exception e) {
+                    } catch (IOException e) {
                         System.err.printf("❌ 사이트 확인 오류 [%s]: %s%n", site.getName(), e.getMessage());
                     }
                 }
@@ -118,26 +118,8 @@ public class NoticeServer {
         }
     }
 
-    static class StaticFileHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            String path = exchange.getRequestURI().getPath();
-            if (path.equals("/")) path = "/index.html";
-            try (InputStream inputStream = NoticeServer.class.getResourceAsStream(path)) {
-                if (inputStream == null) {
-                    sendResponse(exchange, 404, "404 Not Found");
-                } else {
-                    exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
-                    exchange.sendResponseHeaders(200, 0);
-                    try (OutputStream os = exchange.getResponseBody()) {
-                        inputStream.transferTo(os);
-                    }
-                }
-            }
-        }
-    }
+    // --- 핸들러들 ---
 
-    // ... (Login, AddSite, DeleteSite, GetNotifications 핸들러들은 이전 최종본과 동일합니다) ...
     static class GetNotificationsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -158,6 +140,24 @@ public class NoticeServer {
                 }
             }
             sendJsonResponse(exchange, 200, gson.toJson(missedNotifications));
+        }
+    }
+
+    static class StaticFileHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            if (path.equals("/")) path = "/index.html";
+            try (InputStream inputStream = NoticeServer.class.getResourceAsStream(path)) {
+                if (inputStream == null) {
+                    sendResponse(exchange, 404, "404 Not Found");
+                } else {
+                    exchange.sendResponseHeaders(200, 0);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        inputStream.transferTo(os);
+                    }
+                }
+            }
         }
     }
 
@@ -187,9 +187,9 @@ public class NoticeServer {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
             String siteName = params.get("siteName");
-            String siteUrl = params.get("siteUrl"); // Base64 제거
-
+            String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
+
             try (Jedis jedis = jedisPool.getResource()) {
                 String userDataJson = jedis.get(userKey);
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
@@ -197,6 +197,7 @@ public class NoticeServer {
                     sendJsonResponse(exchange, 400, "{\"error\":\"사이트는 최대 3개까지 등록 가능합니다.\"}");
                     return;
                 }
+                String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.addSite(new MonitoredSite(siteName, siteUrl));
                 jedis.set(userKey, gson.toJson(userData));
                 sendJsonResponse(exchange, 200, gson.toJson(userData.getSites()));
@@ -209,19 +210,19 @@ public class NoticeServer {
         public void handle(HttpExchange exchange) throws IOException {
             Map<String, String> params = queryToMap(exchange.getRequestURI().getRawQuery());
             String studentId = params.get("studentId");
-            String siteUrl = params.get("siteUrl"); // Base64 제거
-
+            String siteUrlB64 = params.get("siteUrlB64");
             String userKey = "user:" + studentId;
+
             try (Jedis jedis = jedisPool.getResource()) {
                 String userDataJson = jedis.get(userKey);
                 UserData userData = gson.fromJson(userDataJson, UserData.class);
+                String siteUrl = new String(Base64.getDecoder().decode(siteUrlB64), StandardCharsets.UTF_8);
                 userData.removeSite(siteUrl);
                 jedis.set(userKey, gson.toJson(userData));
                 sendJsonResponse(exchange, 200, gson.toJson(userData.getSites()));
             }
         }
     }
-
 
     private static void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
         exchange.sendResponseHeaders(code, body.getBytes(StandardCharsets.UTF_8).length);
@@ -240,10 +241,8 @@ public class NoticeServer {
         if (query == null) return result;
         for (String param : query.split("&")) {
             String[] pair = param.split("=", 2);
-            if (pair.length > 0) {
-                String key = URLDecoder.decode(pair[0], StandardCharsets.UTF_8);
-                String value = pair.length > 1 ? URLDecoder.decode(pair[1], StandardCharsets.UTF_8) : "";
-                result.put(key, value);
+            if (pair.length > 1) {
+                result.put(URLDecoder.decode(pair[0], StandardCharsets.UTF_8), URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
             }
         }
         return result;
